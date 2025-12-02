@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Para AlpineSki - 종합 분석 대시보드</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }
+.header { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 20px 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }
+.header-content { display: flex; align-items: center; justify-content: space-between; }
+.header-left { display: flex; align-items: center; gap: 15px; }
+.icon { font-size: 40px; }
+.header-text h1 { font-size: 28px; font-weight: 600; margin-bottom: 5px; }
+.header-text p { font-size: 14px; opacity: 0.95; }
+.tab-navigation { display: flex; gap: 10px; }
+.tab-btn { background: rgba(255,255,255,0.2); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+.tab-btn:hover { background: rgba(255,255,255,0.3); }
+.tab-btn.active { background: white; color: #e74c3c; }
+.upload-section { display: flex; justify-content: center; align-items: center; min-height: 70vh; padding: 20px; }
+.upload-card { background: white; border-radius: 16px; padding: 60px 40px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.1); max-width: 700px; width: 100%; }
+.upload-icon { font-size: 80px; margin-bottom: 20px; }
+.upload-card h2 { color: #212529; margin-bottom: 10px; font-size: 24px; }
+.upload-card p { color: #6c757d; margin-bottom: 30px; }
+.upload-btn { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; padding: 15px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s; }
+.upload-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3); }
+.file-list { margin-top: 20px; text-align: left; font-size: 14px; color: #495057; }
+.file-item { padding: 8px; background: #f8f9fa; border-radius: 4px; margin-bottom: 5px; }
+.file-item.loaded { background: #d4edda; color: #155724; }
+.container { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; padding: 20px; max-width: 1800px; margin: 0 auto; }
+.left-panel, .right-panel { display: flex; flex-direction: column; gap: 20px; }
+.card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; }
+.card-header { padding: 15px 20px; background: #f8f9fa; border-bottom: 1px solid #e9ecef; font-weight: 600; color: #495057; font-size: 14px; }
+#map, #map2 { height: 400px; width: 100%; }
+.chart-container { height: 250px; padding: 10px; }
+.stats-grid { display: grid; grid-template-columns: 1fr; gap: 15px; padding: 20px; }
+.stat-item { text-align: center; }
+.stat-value { font-size: 36px; font-weight: 700; color: #212529; margin-bottom: 5px; }
+.stat-unit { font-size: 14px; color: #e74c3c; font-weight: 600; }
+.info-card { padding: 15px 20px; border-bottom: 1px solid #f0f0f0; }
+.info-card:last-child { border-bottom: none; }
+.info-label { font-size: 11px; color: #6c757d; margin-bottom: 5px; }
+.info-value { font-size: 16px; color: #212529; font-weight: 600; }
+.playback-controls { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.control-buttons { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; flex-wrap: wrap; }
+.control-btn { background: #e74c3c; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; font-size: 14px; }
+.control-btn:hover { background: #c0392b; }
+.control-btn:disabled { background: #ccc; cursor: not-allowed; }
+.progress-bar { width: 100%; height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; cursor: pointer; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #e74c3c, #f39c12); width: 0%; transition: width 0.1s linear; }
+.time-display { text-align: center; margin-top: 10px; font-weight: 600; color: #495057; }
+.section-info { background: #fff9e6; border-left: 4px solid #f39c12; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+.section-info h3 { color: #f39c12; font-size: 14px; margin-bottom: 10px; }
+.section-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.section-stat-label { color: #6c757d; margin-bottom: 3px; font-size: 12px; }
+.section-stat-value { font-weight: 700; color: #212529; font-size: 16px; }
+.range-selector, .event-markers { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.range-selector h3, .event-markers h3 { font-size: 14px; color: #495057; margin-bottom: 15px; }
+.range-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+.range-input { display: flex; flex-direction: column; }
+.range-input label { font-size: 12px; color: #6c757d; margin-bottom: 5px; }
+.range-input input, .range-input select { padding: 8px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 14px; }
+.analyze-btn { width: 100%; background: #f39c12; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.analyze-btn:hover { background: #e67e22; }
+.event-list { max-height: 200px; overflow-y: auto; }
+.event-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
+.event-item:hover { background: #e9ecef; }
+.event-time { font-weight: 600; color: #212529; font-size: 13px; }
+.event-delete { color: #e74c3c; cursor: pointer; font-size: 18px; }
+.add-event-btn { width: 100%; background: #3498db; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer; margin-bottom: 15px; transition: all 0.2s; }
+.add-event-btn:hover { background: #2980b9; }
+.event-select { padding: 8px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 12px; }
+.page { display: none; }
+.page.active { display: block; }
+.turn-detection { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.turn-detection h3 { font-size: 16px; color: #495057; margin-bottom: 15px; }
+.detection-controls { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; }
+.detect-btn { background: #9b59b6; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.detect-btn:hover { background: #8e44ad; }
+.turn-list { max-height: 400px; overflow-y: auto; }
+.turn-item { padding: 12px; background: #f8f9fa; border-left: 4px solid #3498db; border-radius: 6px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
+.turn-item:hover { background: #e9ecef; }
+.turn-item.right { border-left-color: #e74c3c; }
+.turn-item.selected { background: #fff3cd; border-left-width: 6px; }
+.turn-header { font-weight: 700; color: #212529; margin-bottom: 8px; font-size: 14px; }
+.turn-details { font-size: 12px; color: #6c757d; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.saved-sections { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px; }
+.saved-sections h3 { font-size: 14px; color: #495057; margin-bottom: 10px; }
+.section-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.section-chip { padding: 8px 12px; background: #e7f3ff; color: #0066cc; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+.section-chip:hover { background: #cce5ff; }
+.section-chip.active { background: #0066cc; color: white; }
+</style>
+
+<div class="header">
+    <div class="header-content">
+        <div class="header-left">
+            <div class="icon">⛷️</div>
+            <div class="header-text">
+                <h1>Para AlpineSki - 종합 분석</h1>
+                <p>GPS 주행 분석 + 움직임 분석</p>
+            </div>
+        </div>
+        <div class="tab-navigation" id="tabNav" style="display: none;">
+            <button class="tab-btn active" onclick="switchTab('gps')">📍 GPS 주행 분석</button>
+            <button class="tab-btn" onclick="switchTab('motion')">🏃 움직임 분석</button>
+        </div>
+    </div>
+</div>
+
+<div id="uploadSection" class="upload-section">
+    <div class="upload-card">
+        <div class="upload-icon">📂</div>
+        <h2>센서 데이터 폴더를 선택하세요</h2>
+        <p>Location, Accelerometer, Gyroscope, Orientation, Metadata CSV 파일 포함</p>
+        <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;">
+        <button class="upload-btn" onclick="document.getElementById('folderInput').click()">📁 폴더 선택</button>
+        <div class="file-list" id="fileList"></div>
+    </div>
+</div>
+
+<div id="gpsPage" class="page">
+    <div class="container">
+        <div class="left-panel">
+            <div class="playback-controls">
+                <div class="control-buttons">
+                    <button class="control-btn" id="playBtn">▶ 재생</button>
+                    <button class="control-btn" id="pauseBtn" disabled>⏸ 일시정지</button>
+                    <button class="control-btn" id="resetBtn">⏮ 처음으로</button>
+                </div>
+                <div class="progress-bar" id="progressBar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
+            </div>
+            
+            <div class="card">
+                <div id="map"></div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">🌐 3D GPS Path</div>
+                <div class="card-content">
+                    <div id="gps3dChart" style="height: 400px; padding: 10px;"></div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">🚄 Skiing Speed</div>
+                <div class="card-content">
+                    <div id="speedChart" class="chart-container"></div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">⛰️ Elevation Changes</div>
+                <div class="card-content">
+                    <div id="elevationChart" class="chart-container"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="right-panel">
+            <div class="card">
+                <div class="card-header">📋 측정 정보</div>
+                <div class="info-card">
+                    <div class="info-label">📱 디바이스</div>
+                    <div class="info-value" id="deviceName">-</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">📅 날짜</div>
+                    <div class="info-value" id="measureDate">-</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">⏰ 시간</div>
+                    <div class="info-value" id="measureTime">-</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">🗺️ 장소</div>
+                    <div class="info-value" id="location">-</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">🌐 위도 / 경도</div>
+                    <div class="info-value" id="coordinates">-</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-label">⛰️ 평균 고도</div>
+                    <div class="info-value" id="avgAltitude">-</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="workoutTime">-</div>
+                        <div class="stat-unit">운동 시간 (분)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="elevationDiff">-</div>
+                        <div class="stat-unit">고도 차이 (m)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="avgSpeed">-</div>
+                        <div class="stat-unit">평균 속도 (m/s)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="maxSpeed">-</div>
+                        <div class="stat-unit">최대 속도 (m/s)</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="event-markers">
+                <h3>📍 구간 설정 (이벤트 시점)</h3>
+                <button class="add-event-btn" id="addEventBtn">➕ 현재 시점 기록</button>
+                <div class="event-list" id="eventList">
+                    <div style="text-align: center; color: #6c757d; padding: 20px; font-size: 12px;">
+                        기록된 시점이 없습니다
+                    </div>
+                </div>
+                <div style="margin-top: 15px;">
+                    <div style="font-size: 12px; color: #6c757d; margin-bottom: 8px;">시점으로 주행 구간 저장:</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                        <select class="event-select" id="sectionStart">
+                            <option value="">시작 시점</option>
+                        </select>
+                        <select class="event-select" id="sectionEnd">
+                            <option value="">종료 시점</option>
+                        </select>
+                    </div>
+                    <button class="analyze-btn" id="saveSectionBtn" style="background: #27ae60;">💾 주행 구간 저장</button>
+                </div>
+            </div>
+            
+            <div id="sectionInfo" style="display: none;">
+                <div class="section-info">
+                    <h3>📊 구간 미리보기</h3>
+                    <div class="section-stats">
+                        <div>
+                            <div class="section-stat-label">구간 시간</div>
+                            <div class="section-stat-value" id="sectionTime">-</div>
+                        </div>
+                        <div>
+                            <div class="section-stat-label">고도 변화</div>
+                            <div class="section-stat-value" id="sectionElevation">-</div>
+                        </div>
+                        <div>
+                            <div class="section-stat-label">평균 속도</div>
+                            <div class="section-stat-value" id="sectionAvgSpeed">-</div>
+                        </div>
+                        <div>
+                            <div class="section-stat-label">최대 속도</div>
+                            <div class="section-stat-value" id="sectionMaxSpeed">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="motionPage" class="page">
+    <div class="container">
+        <div class="left-panel">
+            <div class="saved-sections">
+                <h3>📂 저장된 주행 구간</h3>
+                <div class="section-list" id="sectionList">
+                    <div style="color: #6c757d; font-size: 12px;">GPS 페이지에서 구간을 저장하세요</div>
+                </div>
+            </div>
+            
+            <div class="playback-controls">
+                <div class="control-buttons">
+                    <button class="control-btn" id="playBtn2">▶ 재생</button>
+                    <button class="control-btn" id="pauseBtn2" disabled>⏸ 일시정지</button>
+                    <button class="control-btn" id="resetBtn2">⏮ 처음으로</button>
+                </div>
+                <div class="progress-bar" id="progressBar2">
+                    <div class="progress-fill" id="progressFill2"></div>
+                </div>
+                <div class="time-display" id="timeDisplay2">0:00 / 0:00</div>
+            </div>
+            
+            <div class="card">
+                <div id="map2"></div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">📈 3축 가속도</div>
+                <div class="card-content">
+                    <div id="accelChart" class="chart-container"></div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">🔄 3축 자이로스코프</div>
+                <div class="card-content">
+                    <div id="gyroChart" class="chart-container"></div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">🧭 Orientation (방향 센서)</div>
+                <div class="card-content">
+                    <div id="orientChart" class="chart-container"></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">📊 가속도 필터링 (Butterworth + Savitzky-Golay)</div>
+                <div class="card-content">
+                    <div id="accelFilterChart" class="chart-container"></div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">📊 각속도 필터링 (Butterworth + Savitzky-Golay)</div>
+                <div class="card-content">
+                    <div id="gyroFilterChart" class="chart-container"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="right-panel">
+            <div class="turn-detection">
+                <h3>🎯 턴 시점 검출</h3>
+                <div class="detection-controls">
+                    <div class="range-input">
+                        <label>검출 알고리즘</label>
+                        <select id="detectionAlgorithm">
+                            <option value="quaternion_magnitude">Quaternion 변화율</option>
+                            <option value="quaternion_angle">Quaternion 각도 변화</option>
+                            <option value="qy_peak">Quaternion Y 피크</option>
+                            <option value="qz_peak">Quaternion Z 피크</option>
+                            <option value="roll_pitch">Roll+Pitch 피크</option>
+                            <option value="orientation">Orientation (기존)</option>
+                        </select>
+                    </div>
+                    <div class="range-inputs">
+                        <div class="range-input">
+                            <label>피크 임계값</label>
+                            <input type="number" id="peakThreshold" value="0.05" step="0.01" min="0.01" max="1">
+                        </div>
+                        <div class="range-input">
+                            <label>최소 피크 간격 (samples)</label>
+                            <input type="number" id="minPeakDistance" value="50" min="10" max="200">
+                        </div>
+                    </div>
+                    <button class="detect-btn" id="detectTurnsBtn">🔍 턴 자동 검출</button>
+                </div>
+                <div class="turn-list" id="turnList">
+                    <div style="text-align: center; color: #6c757d; padding: 40px; font-size: 13px;">
+                        턴 검출 버튼을 클릭하세요
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalTurns">-</div>
+                        <div class="stat-unit">총 턴 횟수</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="avgTurnSpeed">-</div>
+                        <div class="stat-unit">평균 턴 속도 (°/s)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="maxAccel">-</div>
+                        <div class="stat-unit">최대 가속도 (m/s²)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="avgGForce">-</div>
+                        <div class="stat-unit">평균 G-Force</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="dashboard_part2.js"></script>
+</body>
+</html>
