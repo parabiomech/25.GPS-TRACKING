@@ -29,6 +29,7 @@ const els = {
     selEnd: document.getElementById('gpsEndMarker'),
     secName: document.getElementById('newSectionName'),
     btnSaveSec: document.getElementById('btnSaveSection'),
+    secStatsTable: document.getElementById('sectionStatsTable'),
 
     // Motion Page
     selSection: document.getElementById('sectionSelector'),
@@ -46,25 +47,14 @@ const els = {
 // ================= FILTERING FUNCTIONS =================
 
 function butterworthFilter(data, fs, cutoff) {
-    // 2nd Order Low Pass Butterworth
-    // If we assume fs=100Hz, cutoff=6Hz. 
-    // Normalized freq wc = 2*PI*cutoff/fs
-    // For simplicity in JS without complex libraries, we use Bi-Quad coefficients
-    // Ref: https://webaudio.github.io/Audio-EQ-Cookbook/audio-eq-cookbook.html
-    // LPF: H(s) = 1 / (s^2 + s/Q + 1)
-
     if (!data || data.length === 0) return [];
-
-    // Hardcoded coefficient calculation for fs=100, fc=6
-    // If fs changes, this should be dynamic. We'll try to estimate or set FS default.
-    // Let's implement a dynamic coefficient calculator.
 
     const sampleRate = fs || 100;
     const freq = cutoff || 6;
     const omega = 2 * Math.PI * freq / sampleRate;
     const sn = Math.sin(omega);
     const cs = Math.cos(omega);
-    const alpha = sn / (2 * 0.707); // Q = 0.707 usually
+    const alpha = sn / (2 * 0.707);
 
     const b0 = (1 - cs) / 2;
     const b1 = 1 - cs;
@@ -73,7 +63,6 @@ function butterworthFilter(data, fs, cutoff) {
     const a1 = -2 * cs;
     const a2 = 1 - alpha;
 
-    // Normalize by a0
     const A1 = a1 / a0;
     const A2 = a2 / a0;
     const B0 = b0 / a0;
@@ -82,21 +71,16 @@ function butterworthFilter(data, fs, cutoff) {
 
     const result = new Array(data.length).fill(0);
 
-    // Apply Filter
     for (let i = 2; i < data.length; i++) {
         result[i] = B0 * data[i] + B1 * data[i - 1] + B2 * data[i - 2]
             - A1 * result[i - 1] - A2 * result[i - 2];
     }
-
     return result;
 }
 
 function savitzkyGolayFilter(data) {
-    // 5-point Quadratic Smoothing
-    // [-3, 12, 17, 12, -3] / 35
     if (!data || data.length < 5) return data;
     const result = [...data];
-
     for (let i = 2; i < data.length - 2; i++) {
         result[i] = (-3 * data[i - 2] + 12 * data[i - 1] + 17 * data[i] + 12 * data[i + 1] - 3 * data[i + 2]) / 35;
     }
@@ -104,8 +88,7 @@ function savitzkyGolayFilter(data) {
 }
 
 function processFullMotionData() {
-    // Estimate FS
-    let fs = 100; // Default
+    let fs = 100;
     if (accelData.length > 1) {
         const dur = (parseInt(accelData[accelData.length - 1].time) - parseInt(accelData[0].time)) / 1e9;
         if (dur > 0) fs = accelData.length / dur;
@@ -113,7 +96,6 @@ function processFullMotionData() {
 
     const pipe = (raw) => {
         const floatData = raw.map(d => parseFloat(d));
-        // Chain: Butterworth -> SG
         const bw = butterworthFilter(floatData, fs, 6);
         return savitzkyGolayFilter(bw);
     };
@@ -124,7 +106,7 @@ function processFullMotionData() {
     const az = pipe(accelData.map(d => d.z));
 
     // Gyro
-    const gx = pipe(gyroData.map(d => d.x * 57.3)); // rad to deg
+    const gx = pipe(gyroData.map(d => d.x * 57.3));
     const gy = pipe(gyroData.map(d => d.y * 57.3));
     const gz = pipe(gyroData.map(d => d.z * 57.3));
 
@@ -266,14 +248,13 @@ function updateIndex(idx) {
 
     if (mapMarker) mapMarker.setLatLng([locationData[idx].latitude, locationData[idx].longitude]);
 
-    // Sync 3D Marker (Trace 1)
     const pt = locationData[idx];
+    // FIX: Using Array of Arrays for valid restyle update of trace attributes
     const marker3d = {
-        x: [parseFloat(pt.longitude)],
-        y: [parseFloat(pt.latitude)],
-        z: [parseFloat(pt.altitude || 0)]
+        x: [[parseFloat(pt.longitude)]],
+        y: [[parseFloat(pt.latitude)]],
+        z: [[parseFloat(pt.altitude || 0)]]
     };
-    // Update trace 1 (the marker)
     Plotly.restyle('gps3dChart', marker3d, [1]);
 
     // Sync Charts
@@ -285,10 +266,7 @@ function updateIndex(idx) {
     } else if (activePage === 'motionPage') {
         let mIdx = 0;
         if (activeSectionData) {
-            // Need to map global playback time to section relative index
-            // Simple approach: calculate time diff from section start, convert to index
             if (parseInt(pt.time) >= activeSectionData.timeRange[0] && parseInt(pt.time) <= activeSectionData.timeRange[1]) {
-                // Inside Section
                 const relTime = parseInt(pt.time) - activeSectionData.timeRange[0];
                 const totalSectionTime = activeSectionData.timeRange[1] - activeSectionData.timeRange[0];
                 const ratio = relTime / totalSectionTime;
@@ -298,7 +276,6 @@ function updateIndex(idx) {
                 Object.keys(processedMotionData).forEach(k => Plotly.relayout(`chart_${k}`, { shapes: [mShape] }));
             }
         } else {
-            // Full Data
             mIdx = Math.floor(idx * (accelData.length / locationData.length));
             const mShape = { type: 'line', x0: mIdx, x1: mIdx, y0: 0, y1: 1, yref: 'paper', line: { color: 'red', width: 1 } };
             Object.keys(processedMotionData).forEach(k => Plotly.relayout(`chart_${k}`, { shapes: [mShape] }));
@@ -319,10 +296,7 @@ function initGPSPage() {
     map = L.map('map').setView([locationData[0].latitude, locationData[0].longitude], 15);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    // Colored Polyline (Segments)
-    // Group segments to avoid DOM overload? 
-    // Let's do individual segments for high quality, if < 5000 points.
-    // If > 5000, maybe stride 2.
+    // Colored Polyline
     const pts = locationData;
     const stride = pts.length > 5000 ? 2 : 1;
 
@@ -330,9 +304,9 @@ function initGPSPage() {
         const p1 = pts[i];
         const p2 = pts[i + stride];
         const spd = parseFloat(p1.speed) * 3.6;
-        let color = '#3498db'; // Slow
-        if (spd > 20) color = '#e67e22'; // Med
-        if (spd > 40) color = '#e74c3c'; // Fast
+        let color = '#3498db';
+        if (spd > 20) color = '#e67e22';
+        if (spd > 40) color = '#e74c3c';
 
         L.polyline([[p1.latitude, p1.longitude], [p2.latitude, p2.longitude]], { color: color, weight: 4 }).addTo(map);
     }
@@ -345,7 +319,7 @@ function initGPSPage() {
     Plotly.newPlot('elevationChart', [{ y: yEle, type: 'scatter', fill: 'tozeroy' }], { margin: { l: 30, r: 10, t: 10, b: 20 }, height: 200 });
     Plotly.newPlot('speedChart', [{ y: ySpd, type: 'scatter', fill: 'tozeroy', line: { color: '#e67e22' } }], { margin: { l: 30, r: 10, t: 10, b: 20 }, height: 200 });
 
-    // 3D Chart - Trace 0: Path, Trace 1: Marker
+    // 3D Chart
     const tracePath = {
         type: 'scatter3d', mode: 'lines',
         x: locationData.map(d => d.longitude), y: locationData.map(d => d.latitude), z: yEle,
@@ -359,22 +333,28 @@ function initGPSPage() {
 
     Plotly.newPlot('gps3dChart', [tracePath, traceMarker], { margin: { t: 0, b: 0, l: 0, r: 0 }, showlegend: false });
 
-    // Stats
+    // Stats Calculation
     const dur = (parseInt(locationData[locationData.length - 1].time) - parseInt(locationData[0].time)) / 1e9 / 60;
     let dist = 0;
-    for (let i = 1; i < locationData.length; i++) dist += (parseFloat(locationData[i].speed) * (parseInt(locationData[i].time) - parseInt(locationData[i - 1].time)) / 1e9);
+    let descent = 0;
+    for (let i = 1; i < locationData.length; i++) {
+        dist += (parseFloat(locationData[i].speed) * (parseInt(locationData[i].time) - parseInt(locationData[i - 1].time)) / 1e9);
+        const dAlt = parseFloat(locationData[i].altitude) - parseFloat(locationData[i - 1].altitude);
+        if (dAlt < 0) descent += Math.abs(dAlt);
+    }
 
     document.getElementById('statDuration').textContent = dur.toFixed(1);
     document.getElementById('statDist').textContent = (dist / 1000).toFixed(2);
     const avgSpd = ySpd.reduce((a, b) => a + b, 0) / ySpd.length;
     document.getElementById('statAvgSpeed').textContent = avgSpd.toFixed(1);
     document.getElementById('statMaxSpeed').textContent = Math.max(...ySpd).toFixed(1);
+    document.getElementById('statDescent').textContent = descent.toFixed(1);
 }
 
 function addEventMarker() {
     const pt = locationData[currentIndex];
     const marker = {
-        id: gpsMarkers.length, // simple id
+        id: gpsMarkers.length,
         index: currentIndex,
         time: pt.time,
         label: `Marker (${els.curTime.textContent})`
@@ -394,7 +374,6 @@ function renderMarkerList() {
     els.selEnd.innerHTML = '<option value="">End</option>';
 
     gpsMarkers.forEach(m => {
-        // List Item
         const div = document.createElement('div');
         div.style.display = 'flex';
         div.style.justifyContent = 'space-between';
@@ -410,7 +389,6 @@ function renderMarkerList() {
 
         els.markerList.appendChild(div);
 
-        // Options
         els.selStart.appendChild(new Option(m.label, m.id));
         els.selEnd.appendChild(new Option(m.label, m.id));
     });
@@ -428,7 +406,7 @@ function saveSection() {
 
     if (!m1 || !m2 || m1.index >= m2.index) { alert("Invalid Selection"); return; }
 
-    // Find Motion Indices
+    // Slice Data
     const tStart = parseInt(m1.time);
     const tEnd = parseInt(m2.time);
     const aStart = accelData.findIndex(d => parseInt(d.time) >= tStart);
@@ -452,7 +430,39 @@ function saveSection() {
 
     savedSections.push(section);
     els.selSection.appendChild(new Option(name, section.id));
-    alert(`Section "${name}" saved!`);
+
+    // Stats
+    let secDist = 0;
+    let secDescent = 0;
+    const speeds = [];
+
+    for (let i = m1.index + 1; i <= m2.index; i++) {
+        const dTime = (parseInt(locationData[i].time) - parseInt(locationData[i - 1].time)) / 1e9;
+        const spd = parseFloat(locationData[i].speed);
+        speeds.push(spd * 3.6);
+        secDist += spd * dTime;
+
+        const dAlt = parseFloat(locationData[i].altitude) - parseFloat(locationData[i - 1].altitude);
+        if (dAlt < 0) secDescent += Math.abs(dAlt);
+    }
+
+    const maxSpd = speeds.length ? Math.max(...speeds) : 0;
+    const avgSpd = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+
+    if (savedSections.length === 1) els.secStatsTable.innerHTML = '';
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td>${name}</td>
+        <td>${section.duration.toFixed(1)}</td>
+        <td>${secDist.toFixed(1)}</td>
+        <td>${avgSpd.toFixed(1)}</td>
+        <td>${maxSpd.toFixed(1)}</td>
+        <td>${secDescent.toFixed(1)}</td>
+    `;
+    els.secStatsTable.appendChild(row);
+
+    alert(`Section "${name}" saved! Stats added.`);
 }
 
 function loadMotionSection(val) {
@@ -483,36 +493,29 @@ function runDetection() {
     const key = document.getElementById('targetVar').value;
     const thresh = parseFloat(document.getElementById('algoThreshold').value);
     const win = parseInt(document.getElementById('algoWindow').value);
-    const dir = document.getElementById('detectDir').value; // abs, pos, neg
+    const dir = document.getElementById('detectDir').value;
 
     const dataObj = activeSectionData ? activeSectionData.data : processedMotionData;
     const series = dataObj[key];
 
     const peaks = [];
     for (let i = 0; i < series.length; i += win) {
-        let maxV = -Infinity;
-        let pI = -1;
+        let maxV = -Infinity, pI = -1;
+        let minV = Infinity, mI = -1;
 
-        let minV = Infinity;
-        let mI = -1;
-
-        // Find Local Extrema
         for (let j = i; j < Math.min(i + win, series.length); j++) {
             if (series[j] > maxV) { maxV = series[j]; pI = j; }
             if (series[j] < minV) { minV = series[j]; mI = j; }
         }
 
-        // Check Conditions
         if (dir === 'pos' || dir === 'abs') {
             if (maxV > thresh) peaks.push({ i: pI, v: maxV });
         }
         if (dir === 'neg' || dir === 'abs') {
-            // Negative peak means value < -threshold
             if (minV < -thresh) peaks.push({ i: mI, v: minV });
         }
     }
 
-    // Visualize
     const trace0 = { y: series, type: 'scatter', mode: 'lines' };
     const trace1 = {
         x: peaks.map(p => p.i), y: peaks.map(p => p.v),
@@ -540,13 +543,11 @@ function calculateStats(peaks, totalDuration) {
     const avgVal = absPeaks.reduce((a, b) => a + b, 0) / peaks.length;
     const maxVal = Math.max(...absPeaks);
 
-    // Estimate DT
     let totalSamples = activeSectionData ? activeSectionData.motionRange[1] - activeSectionData.motionRange[0] : accelData.length;
     let dt = totalDuration / totalSamples;
     if (!dt) dt = 0.01;
 
     let intervals = [];
-    // Sort peaks by index first
     peaks.sort((a, b) => a.i - b.i);
     for (let i = 1; i < peaks.length; i++) {
         intervals.push((peaks[i].i - peaks[i - 1].i) * dt);
@@ -571,5 +572,5 @@ function clearDetection() {
 }
 
 function initMotionPage() {
-    loadCharts(processedMotionData); // Default
+    loadCharts(processedMotionData);
 }
