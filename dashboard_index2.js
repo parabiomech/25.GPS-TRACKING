@@ -3,6 +3,7 @@ let locationData = [], accelData = [], gyroData = [];
 let gpsMarkers = [];
 let savedSections = [];
 let activeSectionData = null;
+let gpsRef = { lat: 0, lon: 0, alt: 0 }; // Reference point for 3D coords
 
 let map, polylineGroup, mapMarker;
 let isPlaying = false;
@@ -126,13 +127,36 @@ function processFullMotionData() {
 function parseCSV(text) {
     const lines = text.trim().split('\n');
     if (lines.length < 2) return [];
-    const headers = lines[0].split(',');
+
+    // Normalize headers: trim and lowercase
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+
     return lines.slice(1).map(line => {
+        // Skip empty lines
+        if (!line.trim()) return null;
+
         const values = line.split(',');
         const obj = {};
-        headers.forEach((h, i) => obj[h.trim()] = values[i]?.trim());
+
+        headers.forEach((h, i) => {
+            // Remove quotes if present and trim
+            let val = values[i] ? values[i].trim() : '';
+            if (val.startsWith('"') && val.endsWith('"')) {
+                val = val.slice(1, -1);
+            }
+            obj[h] = val;
+        });
+
+        // Alias common variations if necessary
+        if (!obj.time && obj.timestamp) obj.time = obj.timestamp;
+        if (!obj.latitude && obj.lat) obj.latitude = obj.lat;
+        if (!obj.longitude && obj.lon) obj.longitude = obj.lon;
+        if (!obj.longitude && obj.long) obj.longitude = obj.long;
+        if (!obj.altitude && obj.alt) obj.altitude = obj.alt;
+        if (!obj.altitude && obj.height) obj.altitude = obj.height;
+
         return obj;
-    });
+    }).filter(x => x !== null);
 }
 
 document.getElementById('folderInput').addEventListener('change', async function (e) {
@@ -250,10 +274,12 @@ function updateIndex(idx) {
 
     const pt = locationData[idx];
     // FIX: Using Array of Arrays for valid restyle update of trace attributes
+    // FIX: Use local coords for 3D marker
+    const localPos = getLocalCoords(parseFloat(pt.latitude), parseFloat(pt.longitude), parseFloat(pt.altitude || 0));
     const marker3d = {
-        x: [[parseFloat(pt.longitude)]],
-        y: [[parseFloat(pt.latitude)]],
-        z: [[parseFloat(pt.altitude || 0)]]
+        x: [[localPos.x]],
+        y: [[localPos.y]],
+        z: [[localPos.z]]
     };
     Plotly.restyle('gps3dChart', marker3d, [1]);
 
@@ -291,6 +317,13 @@ function formatTime(sec) {
 
 // ================= GPS PAGE LOGIC =================
 
+function getLocalCoords(lat, lon, alt) {
+    const x = (lon - gpsRef.lon) * 111320 * Math.cos(gpsRef.lat * Math.PI / 180);
+    const y = (lat - gpsRef.lat) * 110574;
+    const z = alt - gpsRef.alt;
+    return { x, y, z };
+}
+
 function initGPSPage() {
     if (!locationData.length) return;
     map = L.map('map').setView([locationData[0].latitude, locationData[0].longitude], 15);
@@ -320,18 +353,44 @@ function initGPSPage() {
     Plotly.newPlot('speedChart', [{ y: ySpd, type: 'scatter', fill: 'tozeroy', line: { color: '#e67e22' } }], { margin: { l: 30, r: 10, t: 10, b: 20 }, height: 200 });
 
     // 3D Chart
+    // Initialize Reference for Local Coordinates
+    gpsRef = {
+        lat: parseFloat(locationData[0].latitude),
+        lon: parseFloat(locationData[0].longitude),
+        alt: yEle[0]
+    };
+
+    const xRel = [], yRel = [], zRel = [];
+    locationData.forEach((d, i) => {
+        const res = getLocalCoords(parseFloat(d.latitude), parseFloat(d.longitude), yEle[i]);
+        xRel.push(res.x);
+        yRel.push(res.y);
+        zRel.push(res.z);
+    });
+
     const tracePath = {
         type: 'scatter3d', mode: 'lines',
-        x: locationData.map(d => d.longitude), y: locationData.map(d => d.latitude), z: yEle,
+        x: xRel, y: yRel, z: zRel,
         line: { width: 5, color: ySpd, colorscale: 'Viridis' }
     };
     const traceMarker = {
         type: 'scatter3d', mode: 'markers',
-        x: [locationData[0].longitude], y: [locationData[0].latitude], z: [yEle[0]],
+        x: [xRel[0]], y: [yRel[0]], z: [zRel[0]],
         marker: { size: 6, color: 'red' }
     };
 
-    Plotly.newPlot('gps3dChart', [tracePath, traceMarker], { margin: { t: 0, b: 0, l: 0, r: 0 }, showlegend: false });
+    const layout3d = {
+        margin: { t: 0, b: 0, l: 0, r: 0 },
+        showlegend: false,
+        scene: {
+            aspectmode: 'data',
+            camera: {
+                eye: { x: 1.5, y: 1.5, z: 1.5 }
+            }
+        }
+    };
+
+    Plotly.newPlot('gps3dChart', [tracePath, traceMarker], layout3d);
 
     // Stats Calculation
     const dur = (parseInt(locationData[locationData.length - 1].time) - parseInt(locationData[0].time)) / 1e9 / 60;
